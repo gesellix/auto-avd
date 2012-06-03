@@ -23,19 +23,65 @@ PATH=$PATH:$ANDROID_HOME/platform-tools # .../tools is in the path, but .../plat
 PRIVATE=${JENKINS_HOME/home/private} # s|home|private|;
 PRIVATE=${PRIVATE%/hudson_home}      # s|/hudson_home||; i.e. PRIVATE=/private/k9mail, for example.
 
-if [ -z $1 ]; then
-    echo "Usage: $0 API_LEVEL"            # i.e. 3, 7, 10, 15
-    echo "       $0 AVD_NAME TARGET_NAME" # i.e. api7 android-7
-    exit 254
-else
-    if [ -z $2 ]; then
-        MYAPI=$1
-        AVD_NAME=android-${MYAPI}
-        TARGET_NAME=android-${MYAPI}
-    else
-        AVD_NAME=$1
-        TARGET_NAME=$2
-    fi
+usage=$(
+cat <<EOF
+$0 [OPTIONS]
+       Same short options as "android create avd".
+       --force, --path, and --snapshot are assumed.
+       Custom hardware profiles currently not supported.
+  -c : Size of a new sdcard for the new AVD.
+  -n : Name of the new AVD. [required]
+  -s : Skin for the new AVD.
+  -t : Target ID of the new AVD. [required]
+  -b : The ABI to use for the AVD.
+EOF
+)
+
+OPT_SDCARD=""
+AVD_NAME=""
+OPT_SKIN=""
+OPT_TARGET=""
+OPT_ABI=""
+verbosity=0
+
+while getopts "c:n:s:t:b:v" OPTION; do
+    case "$OPTION" in
+        c)
+            OPT_SDCARD="--sdcard $OPTARG"
+            ;;
+        n)
+            AVD_NAME="$OPTARG"
+            ;;
+        s)
+            OPT_SKIN="--skin $OPTARG"
+            ;;
+        t)
+            OPT_TARGET="$OPTARG"
+            ;;
+        b)  # i have no idea why you'd specify a different one than the default.
+            OPT_ABI="--abi $OPTARG"
+            ;;
+        v)  # this is currently unused.
+            verbosity=$(($verbosity+1))
+            ;;
+        *)
+            echo "unrecognized option"
+            echo "$usage"
+            exit 1;
+            ;;
+    esac
+done
+
+if [ "${AVD_NAME}" == "" ]; then
+    echo -e "Option -n required.\n";
+    echo "$usage";
+    exit 1;
+fi
+
+if [ "${OPT_TARGET}" == "" ]; then
+    echo -e "Option -t required.\n";
+    echo "$usage";
+    exit 1;
 fi
 
 myexit () {
@@ -51,8 +97,9 @@ myexit () {
 # create avd and copy the ini file to ${WORKSPACE}/avd/:
 echo creating AVD ${AVD_NAME}...
 mkdir -p ${WORKSPACE}/avd || exit 1
-echo | android create avd --sdcard 10M --name ${AVD_NAME} --snapshot --target ${TARGET_NAME} \
-        --path ${WORKSPACE}/avd/${AVD_NAME}.avd --force || exit 2
+# "echo |" is to press enter to: "Do you wish to create a custom hardware profile [no]"
+echo | android create avd --force --snapshot --path "${WORKSPACE}/avd/${AVD_NAME}.avd" \
+        --name "${AVD_NAME}" --target "${OPT_TARGET}" ${OPT_SDCARD} ${OPT_SKIN} ${OPT_ABI} || exit 2
 cp -f ~/.android/avd/${AVD_NAME}.ini ${WORKSPACE}/avd/ || exit 3
 
 # install daemonize:
