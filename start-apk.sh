@@ -107,21 +107,8 @@ ${WORKSPACE}/daemonize -o ${WORKSPACE}/${AVD_NAME}-logcat.txt \
         $ANDROID_HOME/platform-tools/adb -s ${ANDROID_AVD_DEVICE} logcat -v time
 
 # save ports to file for later "source ./.adbports" :
-echo ANDROID_ADB_SERVER_PORT=${PORTS[0]} > .adbports
+echo ANDROID_ADB_SERVER_PORT=${PORTS[0]} > .adbports || myexit 9
 echo ANDROID_AVD_USER_PORT=${PORTS[1]} >> .adbports
 echo ANDROID_AVD_ADB_PORT=${PORTS[2]} >> .adbports
 echo ANDROID_AVD_DEVICE=localhost:${ANDROID_AVD_ADB_PORT} >> .adbports
-
-exit 0;
-
-# FIXME BELOW. HARDCODED FOR INITIAL TESTING. NOT PRODUCTION.
-echo installing bin/K9-debug.apk
-time adb -e install ${PRIVATE}/K9-debug.apk || myexit 10
-echo installing tests/bin/K9-debug.apk
-time adb -e install ${PRIVATE}/K9-debug-tests.apk || myexit 11
-echo running tests
-time adb -e shell am instrument -w -e coverage false com.fsck.k9.tests/android.test.InstrumentationTestRunner || myexit 12
-echo killing emulator
-time adb emu kill || exit 13
-sleep 1
-! ps ux | grep -f /tmp/${AVD_NAME}.pid | grep emulator || exit 13
+echo Remember to \"source ./.adbports\" to access the emulator.
