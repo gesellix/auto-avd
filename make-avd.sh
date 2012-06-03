@@ -77,9 +77,9 @@ PORTS=(`perl -e '%p = {};
                      $p{$a[$i]} = 1;
                  }
                  print "@a";'`) # bash calling perl calling netstat... i know.
-export ANDROID_ADB_SERVER_PORT=5037 #${PORTS[0]}
-export ANDROID_AVD_USER_PORT=5554 #${PORTS[1]}
-export ANDROID_AVD_ADB_PORT=5555 #${PORTS[2]}
+export ANDROID_ADB_SERVER_PORT=${PORTS[0]} # 5037
+export ANDROID_AVD_USER_PORT=${PORTS[1]} # 5554
+export ANDROID_AVD_ADB_PORT=${PORTS[2]} # 5555
 export ANDROID_AVD_DEVICE=localhost:${ANDROID_AVD_ADB_PORT}
 
 # start emulator:
@@ -139,7 +139,7 @@ echo saving snapshot
 perl -e 'use IO::Socket::INET;
          print "opening connection to $ENV{ANDROID_AVD_USER_PORT}\n";
          $s = IO::Socket::INET->new(PeerAddr => "localhost", PeerPort => "$ENV{ANDROID_AVD_USER_PORT}", Blocking => 0);
-         $s->syswrite("avd stop\r\navd snapshot save default\r\nkill\r\n");
+         $s->syswrite("avd stop\r\navd snapshot save default-boot\r\nkill\r\n");
          sleep 1;
          foreach ($s->getlines) { print };
          $s->close;' # n[et]c[at] and telnet are lacking on the system
@@ -156,7 +156,10 @@ cd ${WORKSPACE}/avd/
 echo creating archive ${AVD_NAME}.tar.gz...
 tar zcpvf ${AVD_NAME}.tar.gz ${AVD_NAME}.ini ${AVD_NAME}.avd || exit 9
 
-exit;
+# quit if running locally (for testing):
+if [ "${HOSTNAME}" == "tantrum" ]; then
+    exit 0
+fi
 
 # copy the archive to private storage via cadaver and then delete it from the workspace:
 chmod u+w ~/.netrc
