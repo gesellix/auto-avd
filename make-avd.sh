@@ -96,15 +96,8 @@ cat /tmp/${USER}-${AVD_NAME}.stdout
 ls -l /tmp/${USER}-${AVD_NAME}.*
 ps ux | grep -f /tmp/${USER}-${AVD_NAME}.pid | grep emulator || myexit 7 # die if the emulator isn't running
 
-# manually: 20 seconds to device online
-#            7 seconds to dev.bootcomplete=1
-#           10 seconds until unlock screen
-#            6 seconds to actually unlock
-#           ~5 seconds to settle?
-#           48 seconds total
-
 # wait for dev.bootcomplete:
-TIMEOUT=120 # this should be lower, or allowed to be changed as an option.
+TIMEOUT=720 # this should be an option.
 time=0;
 sleep=5;
 while [ $time -lt ${TIMEOUT} ]; do

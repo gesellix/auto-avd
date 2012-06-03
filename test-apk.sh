@@ -15,8 +15,6 @@ else
     AVD_NAME=$1
 fi
 
-# ${PWD} == ${WORKSPACE} == /scratch/hudson/workspace/${JOB_NAME}
-
 myexit () {
     echo myexit $1 ...
     adb emu kill;
@@ -27,129 +25,95 @@ myexit () {
     fi
 }
 
-#if [ -e ~/.android/avd/${AVD_NAME}.avd ]; then
-#    echo ${AVD_NAME} already installed
-#else
-#    if [ ! -e ~/.android/avd ]; then
-#        echo making directory ~/.android/avd
-#        mkdir -p ~/.android/avd || exit 1
-#    fi
-#    echo copying ${AVD_NAME}.ini and ${AVD_NAME}.avd into ~/.android/avd/
-#    cp -af ${PRIVATE}/avd/${AVD_NAME}.ini ~/.android/avd/ || exit 2
-#    time cp -afr ${PRIVATE}/avd/${AVD_NAME}.avd ~/.android/avd/ || exit 3
-#fi
+# make sure needed directories exist:
+mkdir -p ~/.android/avd/ ${WORKSPACE}/avd || exit 2
+chmod -R u+w ~/.android ${WORKSPACE}/avd || exit 3
 
-
-mkdir -p ${WORKSPACE}/avd
-cd ${WORKSPACE}/avd/
-
-echo $PWD
-ls -l ${PRIVATE}/avd/
-
+# extract the archive if the ini file or directory does not exist:
 if [ ! -e ${AVD_NAME}.ini -o ! -e ${AVD_NAME}.avd ]; then
     echo extracting ${PRIVATE}/avd/${AVD_NAME}.tar.gz
-    tar xvf ${PRIVATE}/avd/${AVD_NAME}.tar.gz || exit 1
+    tar -C ${WORKSPACE}/avd/ -x -v -f ${PRIVATE}/avd/${AVD_NAME}.tar.gz || exit 4
+    # change the path in the ini files from the ${WORKSPACE} (${JOB_NAME}) they were created in to the current ${WORKSPACE}:
+    perl -pi -e 's|/scratch/hudson/workspace/.+?/|$ENV{WORKSPACE}/|' \
+            ${WORKSPACE}/avd/${AVD_NAME}.ini ${WORKSPACE}/avd/${AVD_NAME}.avd/*.ini || exit 5
 fi
 
-perl -pi -e 's|/scratch/hudson/workspace/.+?/|$ENV{WORKSPACE}/|' ${WORKSPACE}/avd/${AVD_NAME}.ini ${WORKSPACE}/avd/${AVD_NAME}.avd/*.ini
+# copy the ini file to where the emulator expects it to be:
+cp -f ${WORKSPACE}/avd/${AVD_NAME}.ini ~/.android/avd/${AVD_NAME}.ini || exit 6
 
-#chmod -R u+w ~/.android/avd || exit 2
-#rm -rf ~/.android/avd/${AVD_NAME}.ini ~/.android/avd/${AVD_NAME}.avd || exit 3
-chmod -R u+w ~/.android # don't fail on this -- if it's not writable it's not removable below.
-rm -rf ~/.android || exit 3
-mkdir -p ~/.android/avd/ || exit 4
-
-#ln -sf ${WORKSPACE}/avd/${AVD_NAME}.ini ${WORKSPACE}/avd/${AVD_NAME}.avd ~/.android/avd/ || exit 3
-cp -f ${WORKSPACE}/avd/${AVD_NAME}.ini ~/.android/avd/${AVD_NAME}.ini || exit 5
-
-#if [ ! -e ${WORKSPACE}/avd/sdcard.img ]; then
-#    echo making sdcard.img
-#    mksdcard 10M ${WORKSPACE}/avd/sdcard.img || exit 16
-#fi
-
-
-echo ls -lR ${WORKSPACE}/avd/
-ls -lR ${WORKSPACE}/avd/
-
-echo ls -lR ~/.android/avd/
-ls -lR ~/.android/avd/
-
-####
-#
-#if [ ! -e ~/.android/avd/${AVD_NAME}.avd ]; then
-#    echo making directory ~/.android/avd/${AVD_NAME}.avd
-#    mkdir -p ~/.android/avd/${AVD_NAME}.avd || exit 1
-#fi
-#
-#chmod -R u+w ~/.android/avd || exit 14
-#
-#ls -laR ~/.android
-#
-#cd ${PRIVATE}/avd/${AVD_NAME}.avd || exit 2
-#
-#if [ ${PRIVATE}/avd/${AVD_NAME}.ini -nt ~/.android/avd/${AVD_NAME}.ini ]; then
-#    echo updating ${AVD_NAME}.ini
-#    cp -af ${PRIVATE}/avd/${AVD_NAME}.ini ~/.android/avd/ || exit 3
-#fi
-#
-#for f in *; do
-#    if [ ${PRIVATE}/avd/${AVD_NAME}.avd/$f -nt ~/.android/avd/${AVD_NAME}.avd/$f ]; then
-#        echo updating $f
-#        cp -afr ${PRIVATE}/avd/${AVD_NAME}.avd/$f ~/.android/avd/${AVD_NAME}.avd/ || exit 15
-#    fi
-#done
-#
-#if [ ! -e ~/.android/avd/sdcard.img ]; then
-#    echo making sdcard.img
-#    mksdcard 10M ~/.android/avd/sdcard.img || exit 16
-#fi
-#
-#chmod -R u+w ~/.android/avd || exit 17
-#
-####
-
+# copy daemonize to workspace:
 if [ ${PRIVATE}/daemonize -nt ${WORKSPACE}/daemonize ]; then
     echo copying daemonize to ${WORKSPACE}/daemonize
-    cp -f ${PRIVATE}/daemonize ${WORKSPACE}/daemonize || exit 4
+    cp -f ${PRIVATE}/daemonize ${WORKSPACE}/daemonize || exit 7
 fi
 
+# make sure daemonize is executable:
 if [ ! -x ${WORKSPACE}/daemonize ]; then
-    chmod 755 ${WORKSPACE}/daemonize || exit 5
+    chmod 755 ${WORKSPACE}/daemonize || exit 8
 fi
 
-#if [ -e ~/bin/daemonize ]; then
-#    echo daemonize already installed
-#    ls -l ~/bin/daemonize
-#else
-#    if [ ! -e ~/bin ]; then
-#    	echo making directory ~/bin
-#        mkdir ~/bin || exit 4
-#    fi
-#    echo copying daemonize to ~/bin/daemonize
-#    cp ${PRIVATE}/daemonize ~/bin/daemonize || exit 5
-#    chmod 755 ~/bin/daemonize || exit 6
-#fi
+# find three random available ports to use between 32768 and 65535:
+PORTS=(`perl -e '%p = {};
+                 open(NS, "netstat -tln --inet |");
+                 while (<NS>) {
+                     @l = split(/\s+/);
+                     if ($l[3] =~ /^(?:127\.0\.0\.1|0\.0\.0\.0):(\d+)$/ && $1 >= 32768) { $p{$1} = 1; }
+                 }
+                 for ($i=0;$i<3;$i++) {
+                     do { $a[$i] = int rand()*32767+32768;
+                     } while (exists $p{$a[$i]});
+                     $p{$a[$i]} = 1;
+                 }
+                 print "@a";'`) # bash calling perl calling netstat... i know.
+export ANDROID_ADB_SERVER_PORT=${PORTS[0]} # 5037
+export ANDROID_AVD_USER_PORT=${PORTS[1]} # 5554
+export ANDROID_AVD_ADB_PORT=${PORTS[2]} # 5555
+export ANDROID_AVD_DEVICE=localhost:${ANDROID_AVD_ADB_PORT}
 
-#find ~/
-
+# start emulator:
 echo starting emulator ${AVD_NAME}
-${WORKSPACE}/daemonize -o /tmp/${AVD_NAME}.stdout -e /tmp/${AVD_NAME}.stderr -p /tmp/${AVD_NAME}.pid -l /tmp/${AVD_NAME}.lock \
-        $ANDROID_HOME/tools/emulator-arm -avd ${AVD_NAME} -no-audio -no-window -no-snapshot-save || exit 7
-sleep 1;
-echo cat /tmp/${AVD_NAME}.stderr
-cat /tmp/${AVD_NAME}.stderr
-echo cat /tmp/${AVD_NAME}.stdout
-cat /tmp/${AVD_NAME}.stdout
-ls -l /tmp/${AVD_NAME}.*
-ps ux | grep -f /tmp/${AVD_NAME}.pid | grep emulator || myexit 8
-adb kill-server
-time adb start-server
-adb devices
-sleep 7
-adb devices | grep emulator || myexit 9
-echo adb -e wait-for-device
-time adb -e wait-for-device
-adb devices
+${WORKSPACE}/daemonize -o /tmp/${USER}-${AVD_NAME}.stdout -e /tmp/${USER}-${AVD_NAME}.stderr \
+        -p /tmp/${USER}-${AVD_NAME}.pid -l /tmp/${USER}-${AVD_NAME}.lock \
+        $ANDROID_HOME/tools/emulator-arm -avd ${AVD_NAME} -no-audio -no-window -no-snapshot-save \
+        -ports ${ANDROID_AVD_USER_PORT},${ANDROID_AVD_ADB_PORT} -no-boot-anim || exit 6
+adb start-server
+echo cat /tmp/${USER}-${AVD_NAME}.stderr
+cat /tmp/${USER}-${AVD_NAME}.stderr
+echo cat /tmp/${USER}-${AVD_NAME}.stdout
+cat /tmp/${USER}-${AVD_NAME}.stdout
+ls -l /tmp/${USER}-${AVD_NAME}.*
+ps ux | grep -f /tmp/${USER}-${AVD_NAME}.pid | grep emulator || myexit 7 # die if the emulator isn't running
+
+# wait for dev.bootcomplete:
+TIMEOUT=30 # this should be an option.
+time=0;
+sleep=2;
+while [ $time -lt ${TIMEOUT} ]; do
+    adb connect ${ANDROID_AVD_DEVICE}
+    adb -s ${ANDROID_AVD_DEVICE} shell getprop dev.bootcomplete | grep 1 && break
+    adb connect ${ANDROID_AVD_DEVICE}
+    adb -s ${ANDROID_AVD_DEVICE} shell getprop dev.bootcomplete | grep 1 && break
+    adb disconnect ${ANDROID_AVD_DEVICE}
+    time=$[$time+$sleep]
+    sleep $sleep
+done
+adb -s ${ANDROID_AVD_DEVICE} shell getprop dev.bootcomplete | grep 1 || myexit 8
+adb connect ${ANDROID_AVD_DEVICE}
+echo Took $time to $[$time+$sleep] for emulator to be online.
+
+# start logging logcat:
+${WORKSPACE}/daemonize -o ${WORKSPACE}/${AVD_NAME}-logcat.txt \
+        -e /tmp/${USER}-logcat.err -p /tmp/${USER}-logcat.pid -l /tmp/${USER}-logcat.lock \
+        $ANDROID_HOME/platform-tools/adb -s ${ANDROID_AVD_DEVICE} logcat -v time
+
+# save ports to file for later "source ./.adbports" :
+echo ANDROID_ADB_SERVER_PORT=${PORTS[0]} > .adbports
+echo ANDROID_AVD_USER_PORT=${PORTS[1]} >> .adbports
+echo ANDROID_AVD_ADB_PORT=${PORTS[2]} >> .adbports
+echo ANDROID_AVD_DEVICE=localhost:${ANDROID_AVD_ADB_PORT} >> .adbports
+
+exit 0;
+
 # FIXME BELOW. HARDCODED FOR INITIAL TESTING. NOT PRODUCTION.
 echo installing bin/K9-debug.apk
 time adb -e install ${PRIVATE}/K9-debug.apk || myexit 10
