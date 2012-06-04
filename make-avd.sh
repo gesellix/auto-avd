@@ -34,6 +34,8 @@ $0 [OPTIONS]
   -s : Skin for the new AVD.
   -t : Target ID of the new AVD. [required]
   -b : The ABI to use for the AVD.
+
+Alternatively, you can pass only -n NAME to load an existing AVD.
 EOF
 )
 
@@ -78,12 +80,6 @@ if [ "${AVD_NAME}" == "" ]; then
     exit 1;
 fi
 
-if [ "${OPT_TARGET}" == "" ]; then
-    echo -e "Option -t required.\n";
-    echo "$usage";
-    exit 1;
-fi
-
 myexit () {
     echo myexit $1 ...
     adb emu kill;
@@ -94,19 +90,45 @@ myexit () {
     fi
 }
 
-# create avd and copy the ini file to ${WORKSPACE}/avd/:
-echo creating AVD ${AVD_NAME}...
-mkdir -p ${WORKSPACE}/avd || exit 1
-# "echo |" is to press enter to: "Do you wish to create a custom hardware profile [no]"
-echo | android create avd --force --snapshot --path "${WORKSPACE}/avd/${AVD_NAME}.avd" \
-        --name "${AVD_NAME}" --target "${OPT_TARGET}" ${OPT_SDCARD} ${OPT_SKIN} ${OPT_ABI} || exit 2
-cp -f ~/.android/avd/${AVD_NAME}.ini ${WORKSPACE}/avd/ || exit 3
+# make sure needed directories exist:
+mkdir -p ~/.android/avd/ ${WORKSPACE}/avd || exit 1
+chmod -R u+w ~/.android ${WORKSPACE}/avd || exit 99
 
-# install daemonize:
+if [ "${OPT_TARGET}" != "" ]; then
+    # create avd and copy the ini file to ${WORKSPACE}/avd/:
+    echo creating AVD ${AVD_NAME}...
+    # "echo |" is to press enter to: "Do you wish to create a custom hardware profile [no]"
+    echo | android create avd --force --snapshot --path "${WORKSPACE}/avd/${AVD_NAME}.avd" \
+            --name "${AVD_NAME}" --target "${OPT_TARGET}" ${OPT_SDCARD} ${OPT_SKIN} ${OPT_ABI} || exit 2
+    cp -f ~/.android/avd/${AVD_NAME}.ini ${WORKSPACE}/avd/ || exit 3
+    EMULATOR_OPTS="-no-snapshot-load -wipe-data"
+    TIMEOUT=720 # this should be an option.
+    time=0;
+    sleep=5;
+else
+    # extract the archive if the ini file or directory does not exist:
+    if [ ! -e ${AVD_NAME}.ini -o ! -e ${AVD_NAME}.avd ]; then
+        echo extracting ${PRIVATE}/avd/${AVD_NAME}.tar.gz
+        tar -C ${WORKSPACE}/avd/ -x -v -f ${PRIVATE}/avd/${AVD_NAME}.tar.gz || exit 4
+        # change the path in the ini files from the ${WORKSPACE} (${JOB_NAME}) they were created in to the current ${WORKSPACE}:
+        perl -pi -e 's|/scratch/hudson/workspace/.+?/|$ENV{WORKSPACE}/|' \
+                ${WORKSPACE}/avd/${AVD_NAME}.ini ${WORKSPACE}/avd/${AVD_NAME}.avd/*.ini || exit 5
+    fi
+    # copy the ini file to where the emulator expects it to be:
+    cp -f ${WORKSPACE}/avd/${AVD_NAME}.ini ~/.android/avd/${AVD_NAME}.ini || exit 6
+    EMULATOR_OPTS=""
+    TIMEOUT=30 # this should be an option.
+    time=0;
+    sleep=2;
+fi
+
+# copy daemonize to workspace:
 if [ /private/k9mail/daemonize -nt ${WORKSPACE}/daemonize ]; then
     echo copying daemonize to ${WORKSPACE}/daemonize
     cp -f /private/k9mail/daemonize ${WORKSPACE}/daemonize || exit 4
 fi
+
+# make sure daemonize is executable:
 if [ ! -x ${WORKSPACE}/daemonize ]; then
     chmod 755 ${WORKSPACE}/daemonize || exit 5
 fi
@@ -133,8 +155,8 @@ export ANDROID_AVD_DEVICE=localhost:${ANDROID_AVD_ADB_PORT}
 echo starting emulator ${AVD_NAME} 
 ${WORKSPACE}/daemonize -o /tmp/${USER}-${AVD_NAME}.stdout -e /tmp/${USER}-${AVD_NAME}.stderr \
         -p /tmp/${USER}-${AVD_NAME}.pid -l /tmp/${USER}-${AVD_NAME}.lock \
-        $ANDROID_HOME/tools/emulator-arm -avd ${AVD_NAME} -no-audio -no-window -no-snapshot-load \
-        -ports ${ANDROID_AVD_USER_PORT},${ANDROID_AVD_ADB_PORT} -no-snapshot-save -no-boot-anim -wipe-data || exit 6
+        $ANDROID_HOME/tools/emulator-arm -avd ${AVD_NAME} -no-audio -no-window -no-snapshot-save \
+        -ports ${ANDROID_AVD_USER_PORT},${ANDROID_AVD_ADB_PORT} -no-boot-anim ${EMULATOR_OPTS} || exit 6
 adb start-server
 echo cat /tmp/${USER}-${AVD_NAME}.stderr
 cat /tmp/${USER}-${AVD_NAME}.stderr
@@ -144,9 +166,7 @@ ls -l /tmp/${USER}-${AVD_NAME}.*
 ps ux | grep -f /tmp/${USER}-${AVD_NAME}.pid | grep emulator || myexit 7 # die if the emulator isn't running
 
 # wait for dev.bootcomplete:
-TIMEOUT=720 # this should be an option.
 time=0;
-sleep=5;
 while [ $time -lt ${TIMEOUT} ]; do
     adb connect ${ANDROID_AVD_DEVICE}
     adb -s ${ANDROID_AVD_DEVICE} shell getprop dev.bootcomplete | grep 1 && break
@@ -159,6 +179,23 @@ done
 adb -s ${ANDROID_AVD_DEVICE} shell getprop dev.bootcomplete | grep 1 || myexit 8
 adb connect ${ANDROID_AVD_DEVICE}
 echo Took $time to $[$time+$sleep] for emulator to be online.
+
+if [ "${OPT_TARGET}" != "" ]; then
+    # start logging logcat:
+    ${WORKSPACE}/daemonize -o ${WORKSPACE}/${AVD_NAME}-logcat.txt \
+            -e /tmp/${USER}-logcat.err -p /tmp/${USER}-logcat.pid -l /tmp/${USER}-logcat.lock \
+            $ANDROID_HOME/platform-tools/adb -s ${ANDROID_AVD_DEVICE} logcat -v time
+
+    # save ports to file for later "source ./.adbports" :
+    echo ANDROID_ADB_SERVER_PORT=${PORTS[0]} > .adbports || myexit 9
+    echo ANDROID_AVD_USER_PORT=${PORTS[1]} >> .adbports
+    echo ANDROID_AVD_ADB_PORT=${PORTS[2]} >> .adbports
+    echo ANDROID_AVD_DEVICE=localhost:${ANDROID_AVD_ADB_PORT} >> .adbports
+    echo Remember to \"source ./.adbports\" to access the emulator.
+    exit 0
+fi
+
+### ALL BELOW FOR NEW AVD SNAPSHOT ###
 
 # wait for stability, start logging logcat, unlock the screen, stop logging logcat, clear logcat, put a tag in logcat:
 echo Waiting $[($time+$sleep)*4/5] seconds for system to stabilize before unlocking screen...
