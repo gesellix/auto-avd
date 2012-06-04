@@ -20,8 +20,10 @@
 
 PATH=$PATH:$ANDROID_HOME/platform-tools # .../tools is in the path, but .../platform-tools is not
 
-PRIVATE=${JENKINS_HOME/home/private} # s|home|private|;
-PRIVATE=${PRIVATE%/hudson_home}      # s|/hudson_home||; i.e. PRIVATE=/private/k9mail, for example.
+if [[ -z ${PRIVATE} ]]; then
+    PRIVATE=${JENKINS_HOME/home/private} # s|home|private|;
+    PRIVATE=${PRIVATE%/hudson_home}      # s|/hudson_home||; i.e. PRIVATE=/private/k9mail, for example.
+fi
 
 usage=$(
 cat <<EOF
@@ -82,7 +84,7 @@ fi
 
 myexit () {
     echo myexit $1 ...
-    adb emu kill;
+    ANDROID_ADB_SERVER_PORT=${ANDROID_ADB_SERVER_PORT} adb emu kill;
     if [ -z "$1" ]; then
         exit 255;
     else
@@ -94,7 +96,7 @@ myexit () {
 mkdir -p ~/.android/avd/ ${WORKSPACE}/avd || exit 1
 chmod -R u+w ~/.android ${WORKSPACE}/avd || exit 99
 
-if [ "${OPT_TARGET}" != "" ]; then
+if [[ "${OPT_TARGET}" != "" ]] && [[ ! -e ${PRIVATE}/avd/${AVD_NAME}.tar.gz ]]; then
     # create avd and copy the ini file to ${WORKSPACE}/avd/:
     echo creating AVD ${AVD_NAME}...
     # "echo |" is to press enter to: "Do you wish to create a custom hardware profile [no]"
@@ -157,7 +159,7 @@ ${WORKSPACE}/daemonize -o /tmp/${USER}-${AVD_NAME}.stdout -e /tmp/${USER}-${AVD_
         -p /tmp/${USER}-${AVD_NAME}.pid -l /tmp/${USER}-${AVD_NAME}.lock \
         $ANDROID_HOME/tools/emulator-arm -avd ${AVD_NAME} -no-audio -no-window -no-snapshot-save \
         -ports ${ANDROID_AVD_USER_PORT},${ANDROID_AVD_ADB_PORT} -no-boot-anim ${EMULATOR_OPTS} || exit 6
-adb start-server
+ANDROID_ADB_SERVER_PORT=${ANDROID_ADB_SERVER_PORT} adb start-server
 echo cat /tmp/${USER}-${AVD_NAME}.stderr
 cat /tmp/${USER}-${AVD_NAME}.stderr
 echo cat /tmp/${USER}-${AVD_NAME}.stdout
@@ -168,84 +170,93 @@ ps ux | grep -f /tmp/${USER}-${AVD_NAME}.pid | grep emulator || myexit 7 # die i
 # wait for dev.bootcomplete:
 time=0;
 while [ $time -lt ${TIMEOUT} ]; do
-    adb connect ${ANDROID_AVD_DEVICE}
-    adb -s ${ANDROID_AVD_DEVICE} shell getprop dev.bootcomplete | grep 1 && break
-    adb connect ${ANDROID_AVD_DEVICE}
-    adb -s ${ANDROID_AVD_DEVICE} shell getprop dev.bootcomplete | grep 1 && break
-    adb disconnect ${ANDROID_AVD_DEVICE}
+    ANDROID_ADB_SERVER_PORT=${ANDROID_ADB_SERVER_PORT} adb connect ${ANDROID_AVD_DEVICE}
+    ANDROID_ADB_SERVER_PORT=${ANDROID_ADB_SERVER_PORT} adb -s ${ANDROID_AVD_DEVICE} shell getprop dev.bootcomplete | grep 1 && break
+    ANDROID_ADB_SERVER_PORT=${ANDROID_ADB_SERVER_PORT} adb connect ${ANDROID_AVD_DEVICE}
+    ANDROID_ADB_SERVER_PORT=${ANDROID_ADB_SERVER_PORT} adb -s ${ANDROID_AVD_DEVICE} shell getprop dev.bootcomplete | grep 1 && break
+    ANDROID_ADB_SERVER_PORT=${ANDROID_ADB_SERVER_PORT} adb disconnect ${ANDROID_AVD_DEVICE}
     time=$[$time+$sleep]
     sleep $sleep
 done
-adb -s ${ANDROID_AVD_DEVICE} shell getprop dev.bootcomplete | grep 1 || myexit 8
-adb connect ${ANDROID_AVD_DEVICE}
-echo Took $time to $[$time+$sleep] for emulator to be online.
+ANDROID_ADB_SERVER_PORT=${ANDROID_ADB_SERVER_PORT} adb -s ${ANDROID_AVD_DEVICE} shell getprop dev.bootcomplete | grep 1 || myexit 8
+ANDROID_ADB_SERVER_PORT=${ANDROID_ADB_SERVER_PORT} adb connect ${ANDROID_AVD_DEVICE}
+echo Took $time to $[$time+$sleep] seconds for emulator to be online.
 
-if [ "${OPT_TARGET}" != "" ]; then
+if [[ "${OPT_TARGET}" == "" ]] || [[ -e ${PRIVATE}/avd/${AVD_NAME}.tar.gz ]]; then
     # start logging logcat:
-    ${WORKSPACE}/daemonize -o ${WORKSPACE}/${AVD_NAME}-logcat.txt \
+    ANDROID_ADB_SERVER_PORT=${ANDROID_ADB_SERVER_PORT} ${WORKSPACE}/daemonize -o ${WORKSPACE}/${AVD_NAME}-logcat.txt \
             -e /tmp/${USER}-logcat.err -p /tmp/${USER}-logcat.pid -l /tmp/${USER}-logcat.lock \
             $ANDROID_HOME/platform-tools/adb -s ${ANDROID_AVD_DEVICE} logcat -v time
 
     # save ports to file for later "source ./.adbports" :
-    echo ANDROID_ADB_SERVER_PORT=${PORTS[0]} > .adbports || myexit 9
-    echo ANDROID_AVD_USER_PORT=${PORTS[1]} >> .adbports
-    echo ANDROID_AVD_ADB_PORT=${PORTS[2]} >> .adbports
-    echo ANDROID_AVD_DEVICE=localhost:${ANDROID_AVD_ADB_PORT} >> .adbports
+    echo ANDROID_ADB_SERVER_PORT=${PORTS[0]} > ${WORKSPACE}/.adbports || myexit 9
+    echo ANDROID_AVD_USER_PORT=${PORTS[1]} >> ${WORKSPACE}/.adbports
+    echo ANDROID_AVD_ADB_PORT=${PORTS[2]} >> ${WORKSPACE}/.adbports
+    echo ANDROID_AVD_DEVICE=localhost:${ANDROID_AVD_ADB_PORT} >> ${WORKSPACE}/.adbports
+    echo
+    cat .adbports
+    echo
     echo Remember to \"source ./.adbports\" to access the emulator.
+    echo Prepend \"ANDROID_ADB_SERVER_PORT=\${ANDROID_ADB_SERVER_PORT}\" to adb calls.
+    echo Kill emulator by \""echo kill | nc localhost \${ANDROID_AVD_USER_PORT}"\" or \"kill \`cat /tmp/${USER}-${AVD_NAME}.pid\`\"
+    echo Kill adb by \"ANDROID_ADB_SERVER_PORT=\${ANDROID_ADB_SERVER_PORT} adb kill-server\"
     exit 0
-fi
+else
+    # wait for stability, start logging logcat, unlock the screen, stop logging logcat, clear logcat, put a tag in logcat:
+    echo Waiting $[($time+$sleep)*4/5] seconds for system to stabilize before unlocking screen...
+    sleep $[($time+$sleep)*4/5]
+    ANDROID_ADB_SERVER_PORT=${ANDROID_ADB_SERVER_PORT} adb connect ${ANDROID_AVD_DEVICE}
+    ANDROID_ADB_SERVER_PORT=${ANDROID_ADB_SERVER_PORT} ${WORKSPACE}/daemonize -o ${WORKSPACE}/avd/${AVD_NAME}.avd/initial-logcat.txt \
+            -e /tmp/${USER}-logcat.err -p /tmp/${USER}-logcat.pid -l /tmp/${USER}-logcat.lock \
+            $ANDROID_HOME/platform-tools/adb -s ${ANDROID_AVD_DEVICE} logcat -v time
+    ANDROID_ADB_SERVER_PORT=${ANDROID_ADB_SERVER_PORT} adb -s ${ANDROID_AVD_DEVICE} shell input keyevent 82 # unlocks emulator screen
+    echo Waiting $[($time+$sleep)/10] seconds for system to stabilize before creating snapshot...
+    sleep $[($time+$sleep)/10] # dunno what this should be -- it took 1.473 seconds on my machine for android-7
+    kill `cat /tmp/${USER}-logcat.pid`
+    ANDROID_ADB_SERVER_PORT=${ANDROID_ADB_SERVER_PORT} adb -s ${ANDROID_AVD_DEVICE} logcat -c
+    ANDROID_ADB_SERVER_PORT=${ANDROID_ADB_SERVER_PORT} adb -s ${ANDROID_AVD_DEVICE} shell log -p v -t Jenkins "Creating snapshot..."
 
-### ALL BELOW FOR NEW AVD SNAPSHOT ###
+    # save the snapshot, and kill the emulator and adb:
+    echo saving snapshot
+    perl -e 'use IO::Socket::INET;
+             print "opening connection to $ENV{ANDROID_AVD_USER_PORT}\n";
+             $s = IO::Socket::INET->new(PeerAddr => "localhost", PeerPort => "$ENV{ANDROID_AVD_USER_PORT}", Blocking => 0);
+             $s->syswrite("avd stop\r\navd snapshot save default-boot\r\nkill\r\n");
+             sleep 1;
+             foreach ($s->getlines) { print };
+             $s->close;' # n[et]c[at] and telnet are lacking on the system
+    ANDROID_ADB_SERVER_PORT=${ANDROID_ADB_SERVER_PORT} adb disconnect ${ANDROID_AVD_DEVICE}
+    kill `cat /tmp/${USER}-${AVD_NAME}.pid` # just to make sure
+    ANDROID_ADB_SERVER_PORT=${ANDROID_ADB_SERVER_PORT} adb kill-server
+    echo waiting for emulator lockfiles to disappear...
+    while ls ${WORKSPACE}/avd/${AVD_NAME}.avd/*.lock >& /dev/null
+    do
+        sleep .1;
+    done
 
-# wait for stability, start logging logcat, unlock the screen, stop logging logcat, clear logcat, put a tag in logcat:
-echo Waiting $[($time+$sleep)*4/5] seconds for system to stabilize before unlocking screen...
-sleep $[($time+$sleep)*4/5]
-adb connect ${ANDROID_AVD_DEVICE}
-${WORKSPACE}/daemonize -o ${WORKSPACE}/avd/${AVD_NAME}.avd/initial-logcat.txt \
-        -e /tmp/${USER}-logcat.err -p /tmp/${USER}-logcat.pid -l /tmp/${USER}-logcat.lock \
-        $ANDROID_HOME/platform-tools/adb -s ${ANDROID_AVD_DEVICE} logcat -v time
-adb -s ${ANDROID_AVD_DEVICE} shell input keyevent 82 # unlocks emulator screen
-echo Waiting $[($time+$sleep)/10] seconds for system to stabilize before creating snapshot...
-sleep $[($time+$sleep)/10] # dunno what this should be -- it took 1.473 seconds on my machine for android-7
-kill `cat /tmp/${USER}-logcat.pid`
-adb -s ${ANDROID_AVD_DEVICE} logcat -c
-adb -s ${ANDROID_AVD_DEVICE} shell log -p v -t Jenkins "Creating snapshot..."
+    echo creating archive ${AVD_NAME}.tar.gz...
+    tar -C ${WORKSPACE}/avd/ -z -c -p -v -f ${AVD_NAME}.tar.gz ${AVD_NAME}.ini ${AVD_NAME}.avd || exit 9
 
-# save the snapshot, and kill the emulator and adb:
-echo saving snapshot
-perl -e 'use IO::Socket::INET;
-         print "opening connection to $ENV{ANDROID_AVD_USER_PORT}\n";
-         $s = IO::Socket::INET->new(PeerAddr => "localhost", PeerPort => "$ENV{ANDROID_AVD_USER_PORT}", Blocking => 0);
-         $s->syswrite("avd stop\r\navd snapshot save default-boot\r\nkill\r\n");
-         sleep 1;
-         foreach ($s->getlines) { print };
-         $s->close;' # n[et]c[at] and telnet are lacking on the system
-adb disconnect ${ANDROID_AVD_DEVICE}
-kill `cat /tmp/${USER}-${AVD_NAME}.pid` # just to make sure
-adb kill-server
-echo waiting for emulator lockfiles to disappear...
-while ls ${WORKSPACE}/avd/${AVD_NAME}.avd/*.lock >& /dev/null
-do
-    sleep .1;
-done
+    # quit if running locally (for testing):
+    if [ "${HOSTNAME}" == "tantrum" ]; then
+        mv ${AVD_NAME}.tar.gz ${WORKSPACE}/avd/
+        echo Rerunning to start emulator ${AVD_NAME}
+        sh $0 -n ${AVD_NAME}
+        exit 0
+    fi
 
-cd ${WORKSPACE}/avd/
-echo creating archive ${AVD_NAME}.tar.gz...
-tar zcpvf ${AVD_NAME}.tar.gz ${AVD_NAME}.ini ${AVD_NAME}.avd || exit 9
-
-# quit if running locally (for testing):
-if [ "${HOSTNAME}" == "tantrum" ]; then
-    exit 0
-fi
-
-# copy the archive to private storage via cadaver and then delete it from the workspace:
-chmod u+w ~/.netrc
-if [ /private/k9mail/.netrc -nt ~/.netrc ]; then
-    cp -f /private/k9mail/.netrc ~/.netrc
+    # copy the archive to private storage via cadaver and then delete it from the workspace:
     chmod u+w ~/.netrc
+    if [ /private/k9mail/.netrc -nt ~/.netrc ]; then
+        cp -f /private/k9mail/.netrc ~/.netrc
+        chmod u+w ~/.netrc
+    fi
+    echo copying ${AVD_NAME}.tar.gz to /private/k9mail/
+    (echo -e "put ${AVD_NAME}.tar.gz\nquit" | cadaver https://repository-k9mail.forge.cloudbees.com/private/avd/) || exit 10
+    rm -f ~/.netrc
+    ls -l ${AVD_NAME}.tar.gz /private/k9mail/avd/${AVD_NAME}.tar.gz # these should be the same size if successful
+    rm -f ${AVD_NAME}.tar.gz
+    echo Rerunning to start emulator ${AVD_NAME}
+    sh $0 -n ${AVD_NAME}
+    exit 0
 fi
-echo copying ${AVD_NAME}.tar.gz to /private/k9mail/
-(echo -e "put ${AVD_NAME}.tar.gz\nquit" | cadaver https://repository-k9mail.forge.cloudbees.com/private/avd/) || exit 10
-rm -f ~/.netrc
-ls -l ${AVD_NAME}.tar.gz /private/k9mail/avd/${AVD_NAME}.tar.gz # these should be the same size if successful
-rm -f ${AVD_NAME}.tar.gz
