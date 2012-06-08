@@ -1,26 +1,29 @@
-#!/bin/sh
+#!/bin/bash
 
-# this creates an AVD and puts it in /private/<account-id> for DEV@cloud.
-# the AVD is later installed in ${WORKSPACE}/avd/ for access.
-# running on m1.large is recommended, as it took 3 minutes 14 seconds total
-# (including a 30 second sleep after bootanimation stops for safety).
-# it will take much much longer on m1.small.
+# This creates an AVD and puts it in /private/<account-id> for DEV@cloud, then starting it.
+# Alternatively, it installs and runs an AVD if one of the name already exists.
+# The AVD is installed in ${WORKSPACE}/avd/ instead of ${HOME}/.android/avd/.
 
-# it will overwrite an AVD of the same name.
+# Running on m1.large is recommended, as it took _____________ total.
+# It will take much much longer on m1.small.
 
-# requires /private/<account-id>/.netrc to exist for cadaver, with the lines:
+# Requires /private/<account-id>/.netrc to exist for cadaver, with the lines:
 # machine repository-{account-id}.forge.cloudbees.com
 # login USERNAME
 # password PASSWORD
 
-# requires the folder /private/<account-id>/avd to already exist.
+# Requires the folder /private/<account-id>/avd to already exist.
 
-# non-android external programs called: netstat, cadaver, daemonize; as well as things that should
+# Non-android external programs called: netstat, cadaver, daemonize; as well as things that should
 # certainly be there such as perl, tar, echo, ls, ps, mkdir, copy, chmod, cat, sleep, kill, cd
 
-# TODO: test if it runs correctly in different PWD than WORKSPACE.
-#       change [ ... ] to [[ ... ]] and test.
-#       change exit values.
+# Optionally, can be run locally, without private storage. Environment variables PRIVATE and
+# WORKSPACE need to exist -- i set them to $HOME. Also, "tantrum" in this script needs to be changed
+# to whatever your $HOSTNAME is.
+
+# TODO: Make default output significantly less verbose, with option to make it more verbose.
+#       Allow custom hardware profiles.
+#       Make AVD names more descriptive (like the Jenkins plugin does).
 
 usage=$(
 cat <<EOF
@@ -41,7 +44,7 @@ EOF
 myexit () {
     echo myexit $1 ...
     ANDROID_ADB_SERVER_PORT=${ANDROID_ADB_SERVER_PORT} adb emu kill;
-    if [ -z "$1" ]; then
+    if [[ -z "$1" ]]; then
         exit 255
     else
         exit $1
@@ -53,8 +56,8 @@ create_avd () {
     echo creating AVD ${AVD_NAME}...
     # "echo |" is to press enter to: "Do you wish to create a custom hardware profile [no]"
     echo | android create avd --force --snapshot --path "${WORKSPACE}/avd/${AVD_NAME}.avd" \
-            --name "${AVD_NAME}" --target "${OPT_TARGET}" ${OPT_SDCARD} ${OPT_SKIN} ${OPT_ABI} || exit 2
-    cp -f ~/.android/avd/${AVD_NAME}.ini ${WORKSPACE}/avd/ || exit 3
+            --name "${AVD_NAME}" --target "${OPT_TARGET}" ${OPT_SDCARD} ${OPT_SKIN} ${OPT_ABI} || exit 7
+    cp -f ~/.android/avd/${AVD_NAME}.ini ${WORKSPACE}/avd/ || exit 8
     EMULATOR_OPTS="-no-snapshot-load -wipe-data"
     TIMEOUT=720 # this should be an option.
     sleep=5
@@ -62,15 +65,15 @@ create_avd () {
 
 extract_avd () {
     # extract the archive if the ini file or directory does not exist:
-    if [ ! -e ${WORKSPACE}/avd/${AVD_NAME}.ini -o ! -e ${WORKSPACE}/avd/${AVD_NAME}.avd ]; then
+    if [[ ! -e ${WORKSPACE}/avd/${AVD_NAME}.ini ]] || [[ ! -e ${WORKSPACE}/avd/${AVD_NAME}.avd ]]; then
         echo extracting ${PRIVATE}/avd/${AVD_NAME}.tar.gz
-        tar -C ${WORKSPACE}/avd/ -x -v -f ${PRIVATE}/avd/${AVD_NAME}.tar.gz || exit 4
+        tar -C ${WORKSPACE}/avd/ -x -v -f ${PRIVATE}/avd/${AVD_NAME}.tar.gz || exit 9
         # change the path in the ini files from the ${WORKSPACE} (${JOB_NAME}) they were created in to the current ${WORKSPACE}:
         perl -pi -e 's|/scratch/hudson/workspace/.+?/|$ENV{WORKSPACE}/|' \
-                ${WORKSPACE}/avd/${AVD_NAME}.ini ${WORKSPACE}/avd/${AVD_NAME}.avd/*.ini || exit 5
+                ${WORKSPACE}/avd/${AVD_NAME}.ini ${WORKSPACE}/avd/${AVD_NAME}.avd/*.ini || exit 10
     fi
     # copy the ini file to where the emulator expects it to be:
-    cp -f ${WORKSPACE}/avd/${AVD_NAME}.ini ~/.android/avd/${AVD_NAME}.ini || exit 6
+    cp -f ${WORKSPACE}/avd/${AVD_NAME}.ini ~/.android/avd/${AVD_NAME}.ini || exit 11
     EMULATOR_OPTS=""
     TIMEOUT=30 # this should be an option.
     sleep=2
@@ -102,20 +105,20 @@ start_emulator () {
     ${WORKSPACE}/daemonize -o /tmp/${USER}-${AVD_NAME}.stdout -e /tmp/${USER}-${AVD_NAME}.stderr \
             -p /tmp/${USER}-${AVD_NAME}.pid -l /tmp/${USER}-${AVD_NAME}.lock \
             $ANDROID_HOME/tools/emulator-arm -avd ${AVD_NAME} -no-audio -no-window -no-snapshot-save \
-            -ports ${ANDROID_AVD_USER_PORT},${ANDROID_AVD_ADB_PORT} -no-boot-anim ${EMULATOR_OPTS} || exit 6
+            -ports ${ANDROID_AVD_USER_PORT},${ANDROID_AVD_ADB_PORT} -no-boot-anim ${EMULATOR_OPTS} || exit 12
     ANDROID_ADB_SERVER_PORT=${ANDROID_ADB_SERVER_PORT} adb start-server
     echo cat /tmp/${USER}-${AVD_NAME}.stderr
     cat /tmp/${USER}-${AVD_NAME}.stderr
     echo cat /tmp/${USER}-${AVD_NAME}.stdout
     cat /tmp/${USER}-${AVD_NAME}.stdout
     ls -l /tmp/${USER}-${AVD_NAME}.*
-    ps ux | grep -f /tmp/${USER}-${AVD_NAME}.pid | grep emulator || myexit 7 # die if the emulator isn't running
+    ps ux | grep -f /tmp/${USER}-${AVD_NAME}.pid | grep emulator || myexit 13 # die if the emulator isn't running
 }
 
 wait_for_boot () {
     # wait for dev.bootcomplete:
     time=0
-    while [ $time -lt ${TIMEOUT} ]; do
+    while [[ $time -lt ${TIMEOUT} ]]; do
         ANDROID_ADB_SERVER_PORT=${ANDROID_ADB_SERVER_PORT} adb connect ${ANDROID_AVD_DEVICE}
         ANDROID_ADB_SERVER_PORT=${ANDROID_ADB_SERVER_PORT} adb -s ${ANDROID_AVD_DEVICE} shell getprop dev.bootcomplete | grep 1 && break
         ANDROID_ADB_SERVER_PORT=${ANDROID_ADB_SERVER_PORT} adb connect ${ANDROID_AVD_DEVICE}
@@ -124,7 +127,7 @@ wait_for_boot () {
         time=$[$time+$sleep]
         sleep $sleep
     done
-    ANDROID_ADB_SERVER_PORT=${ANDROID_ADB_SERVER_PORT} adb -s ${ANDROID_AVD_DEVICE} shell getprop dev.bootcomplete | grep 1 || myexit 8
+    ANDROID_ADB_SERVER_PORT=${ANDROID_ADB_SERVER_PORT} adb -s ${ANDROID_AVD_DEVICE} shell getprop dev.bootcomplete | grep 1 || myexit 14
     ANDROID_ADB_SERVER_PORT=${ANDROID_ADB_SERVER_PORT} adb connect ${ANDROID_AVD_DEVICE}
     echo Took $time to $[$time+$sleep] seconds for emulator to be online.
 }
@@ -136,12 +139,12 @@ start_avd () {
             $ANDROID_HOME/platform-tools/adb -s ${ANDROID_AVD_DEVICE} logcat -v time
 
     # save ports to file for later "source ./.adbports" :
-    echo ANDROID_ADB_SERVER_PORT=${PORTS[0]} > ${WORKSPACE}/.adbports || myexit 9
+    echo ANDROID_ADB_SERVER_PORT=${PORTS[0]} > ${WORKSPACE}/.adbports || myexit 15
     echo ANDROID_AVD_USER_PORT=${PORTS[1]} >> ${WORKSPACE}/.adbports
     echo ANDROID_AVD_ADB_PORT=${PORTS[2]} >> ${WORKSPACE}/.adbports
     echo ANDROID_AVD_DEVICE=localhost:${ANDROID_AVD_ADB_PORT} >> ${WORKSPACE}/.adbports
     echo
-    cat .adbports
+    cat ${WORKSPACE}/.adbports
     echo
     echo Remember to \"source ./.adbports\" to access the emulator.
     echo Prepend \"ANDROID_ADB_SERVER_PORT=\${ANDROID_ADB_SERVER_PORT}\" to adb calls.
@@ -184,14 +187,12 @@ create_snapshot () {
     done
 
     echo creating archive ${AVD_NAME}.tar.gz...
-    tar -C ${WORKSPACE}/avd/ -z -c -p -v -f ${AVD_NAME}.tar.gz ${AVD_NAME}.ini ${AVD_NAME}.avd || exit 9
+    tar -C ${WORKSPACE}/avd/ -z -c -p -v -f ${AVD_NAME}.tar.gz ${AVD_NAME}.ini ${AVD_NAME}.avd || exit 16
 
     # quit if running locally (for testing):
-    if [ "${HOSTNAME}" == "tantrum" ]; then
-        mv ${AVD_NAME}.tar.gz ${WORKSPACE}/avd/
-        #echo Rerunning to start emulator ${AVD_NAME}
-        #sh $0 -n ${AVD_NAME}
-        #exit 0
+    if [[ "${HOSTNAME}" == "tantrum" ]]; then
+        mkdir -p ${PRIVATE}/avd
+        mv ${AVD_NAME}.tar.gz ${PRIVATE}/avd/
         extract_avd
         set_ports
         start_emulator
@@ -201,18 +202,15 @@ create_snapshot () {
 
     # copy the archive to private storage via cadaver and then delete it from the workspace:
     chmod u+w ~/.netrc
-    if [ /private/k9mail/.netrc -nt ~/.netrc ]; then
+    if [[ /private/k9mail/.netrc -nt ~/.netrc ]]; then
         cp -f /private/k9mail/.netrc ~/.netrc
         chmod u+w ~/.netrc
     fi
     echo copying ${AVD_NAME}.tar.gz to /private/k9mail/
-    (echo -e "put ${AVD_NAME}.tar.gz\nquit" | cadaver https://repository-k9mail.forge.cloudbees.com/private/avd/) || exit 10
+    (echo -e "put ${AVD_NAME}.tar.gz\nquit" | cadaver https://repository-k9mail.forge.cloudbees.com/private/avd/) || exit 17
     rm -f ~/.netrc
     ls -l ${AVD_NAME}.tar.gz /private/k9mail/avd/${AVD_NAME}.tar.gz # these should be the same size if successful
     rm -f ${AVD_NAME}.tar.gz
-    #echo Rerunning to start emulator ${AVD_NAME}
-    #sh $0 -n ${AVD_NAME}
-    #exit 0
     extract_avd
     set_ports
     start_emulator
@@ -259,10 +257,10 @@ while getopts "c:n:s:t:b:v" OPTION; do
     esac
 done
 
-if [ "${AVD_NAME}" == "" ]; then
+if [[ "${AVD_NAME}" == "" ]]; then
     echo -e "Option -n required.\n"
     echo "$usage"
-    exit 1
+    exit 2
 fi
 
 PATH=$PATH:$ANDROID_HOME/platform-tools # .../tools is in the path, but .../platform-tools is not
@@ -273,18 +271,18 @@ if [[ -z ${PRIVATE} ]]; then
 fi
 
 # make sure needed directories exist:
-mkdir -p ~/.android/avd/ ${WORKSPACE}/avd || exit 1
-chmod -R u+w ~/.android ${WORKSPACE}/avd || exit 99
+mkdir -p ~/.android/avd/ ${WORKSPACE}/avd || exit 3
+chmod -R u+w ~/.android ${WORKSPACE}/avd || exit 4
 
 # copy daemonize to workspace:
-if [ /private/k9mail/daemonize -nt ${WORKSPACE}/daemonize ]; then
+if [[ /private/k9mail/daemonize -nt ${WORKSPACE}/daemonize ]]; then
     echo copying daemonize to ${WORKSPACE}/daemonize
-    cp -f /private/k9mail/daemonize ${WORKSPACE}/daemonize || exit 4
+    cp -f /private/k9mail/daemonize ${WORKSPACE}/daemonize || exit 5
 fi
 
 # make sure daemonize is executable:
-if [ ! -x ${WORKSPACE}/daemonize ]; then
-    chmod 755 ${WORKSPACE}/daemonize || exit 5
+if [[ ! -x ${WORKSPACE}/daemonize ]]; then
+    chmod 755 ${WORKSPACE}/daemonize || exit 6
 fi
 
 # create or extract avd:
