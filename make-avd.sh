@@ -1,29 +1,53 @@
 #!/bin/bash
 
+# The MIT License
+#
+# Copyright 2012 Ashley Willis <ashley.github@gmail.com>
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+#
+# The above copyright notice and this permission notice shall be included in
+# all copies or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+# THE SOFTWARE.
+
 # This creates an AVD and puts it in /private/<account-id> for DEV@cloud, then starting it.
 # Alternatively, it installs and runs an AVD if one of the name already exists.
 # The AVD is installed in ${WORKSPACE}/avd/ instead of ${HOME}/.android/avd/.
-
+#
 # Running on m1.large is recommended, as it took _____________ total.
 # It will take much much longer on m1.small.
-
+#
 # Requires /private/<account-id>/.netrc to exist for cadaver, with the lines:
 # machine repository-{account-id}.forge.cloudbees.com
 # login USERNAME
 # password PASSWORD
-
+#
 # Requires the folder /private/<account-id>/avd to already exist.
-
+#
 # Non-android external programs called: netstat, cadaver, daemonize; as well as things that should
 # certainly be there such as perl, tar, echo, ls, ps, mkdir, copy, chmod, cat, sleep, kill, cd
-
+#
 # Optionally, can be run locally, without private storage. Environment variables PRIVATE and
 # WORKSPACE need to exist -- i set them to $HOME. Also, "tantrum" in this script needs to be changed
 # to whatever your $HOSTNAME is.
-
+#
 # TODO: Make default output significantly less verbose, with option to make it more verbose.
 #       Allow custom hardware profiles.
 #       Make AVD names more descriptive (like the Jenkins plugin does).
+#       Change .adbports to .adbports.${AVD_NAME}
+
 
 usage=$(
 cat <<EOF
@@ -38,6 +62,7 @@ $0 [OPTIONS]
   -b : The ABI to use for the AVD.
 
 Alternatively, you can pass only -n NAME to load an existing AVD.
+$0 version 0.100, Copyright 2012 Ashley Willis <ashley.github@gmail.com>
 EOF
 )
 
@@ -146,7 +171,7 @@ start_avd () {
     echo
     cat ${WORKSPACE}/.adbports
     echo
-    echo Remember to \"source ./.adbports\" to access the emulator.
+    echo Remember to \"source ${WORKSPACE}/.adbports\" to access the emulator.
     echo Prepend \"ANDROID_ADB_SERVER_PORT=\${ANDROID_ADB_SERVER_PORT}\" to adb calls.
     echo Kill emulator by \""echo kill | nc localhost \${ANDROID_AVD_USER_PORT}"\" or \"kill \`cat /tmp/${USER}-${AVD_NAME}.pid\`\"
     echo Kill adb by \"ANDROID_ADB_SERVER_PORT=\${ANDROID_ADB_SERVER_PORT} adb kill-server\"
@@ -165,6 +190,7 @@ create_snapshot () {
     echo Waiting $[($time+$sleep)/10] seconds for system to stabilize before creating snapshot...
     sleep $[($time+$sleep)/10] # dunno what this should be -- it took 1.473 seconds on my machine for android-7
     kill `cat /tmp/${USER}-logcat.pid`
+    ANDROID_ADB_SERVER_PORT=${ANDROID_ADB_SERVER_PORT} adb connect ${ANDROID_AVD_DEVICE}
     ANDROID_ADB_SERVER_PORT=${ANDROID_ADB_SERVER_PORT} adb -s ${ANDROID_AVD_DEVICE} logcat -c
     ANDROID_ADB_SERVER_PORT=${ANDROID_ADB_SERVER_PORT} adb -s ${ANDROID_AVD_DEVICE} shell log -p v -t Jenkins "Creating snapshot..."
 
