@@ -47,7 +47,7 @@ bash $PRIVATE/build-cb.sh emma debug artifacts
 # start/create the emulator:
 export AVD_NAME=android-7
 export AVD_TARGET=android-7
-bash $PRIVATE/make-avd.sh -n $AVD_NAME -t $AVD_TARGET -c 10M
+bash $PRIVATE/auto-avd.sh -n $AVD_NAME -t $AVD_TARGET -c 10M
 source $WORKSPACE/.adbports
 
 # do tests and such:
