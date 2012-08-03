@@ -38,6 +38,7 @@
 #
 # Non-android external programs called: netstat, cadaver, daemonize; as well as things that should
 # certainly be there such as perl, tar, echo, ls, ps, mkdir, copy, chmod, cat, sleep, kill, cd
+# daemonize: https://github.com/bmc/daemonize
 #
 # Optionally, can be run locally, without private storage. Environment variables PRIVATE and
 # WORKSPACE need to exist -- i set them to $HOME. Also, "tantrum" in this script needs to be changed
@@ -127,7 +128,7 @@ set_ports () {
 start_emulator () {
     # start emulator:
     echo starting emulator ${AVD_NAME}
-    ${WORKSPACE}/daemonize -o /tmp/${USER}-${AVD_NAME}.stdout -e /tmp/${USER}-${AVD_NAME}.stderr \
+    daemonize -o /tmp/${USER}-${AVD_NAME}.stdout -e /tmp/${USER}-${AVD_NAME}.stderr \
             -p /tmp/${USER}-${AVD_NAME}.pid -l /tmp/${USER}-${AVD_NAME}.lock \
             $ANDROID_HOME/tools/emulator-arm -avd ${AVD_NAME} -no-audio -no-window -no-snapshot-save \
             -ports ${ANDROID_AVD_USER_PORT},${ANDROID_AVD_ADB_PORT} -no-boot-anim ${EMULATOR_OPTS} || exit 12
@@ -159,7 +160,7 @@ wait_for_boot () {
 
 start_avd () {
     # start logging logcat:
-    ANDROID_ADB_SERVER_PORT=${ANDROID_ADB_SERVER_PORT} ${WORKSPACE}/daemonize -o ${WORKSPACE}/${AVD_NAME}-logcat.txt \
+    ANDROID_ADB_SERVER_PORT=${ANDROID_ADB_SERVER_PORT} daemonize -o ${WORKSPACE}/${AVD_NAME}-logcat.txt \
             -e /tmp/${USER}-logcat.err -p /tmp/${USER}-logcat.pid -l /tmp/${USER}-logcat.lock \
             $ANDROID_HOME/platform-tools/adb -s ${ANDROID_AVD_DEVICE} logcat -v time
 
@@ -183,7 +184,7 @@ create_snapshot () {
     echo Waiting $[($time+$sleep)*4/5] seconds for system to stabilize before unlocking screen...
     sleep $[($time+$sleep)*4/5]
     ANDROID_ADB_SERVER_PORT=${ANDROID_ADB_SERVER_PORT} adb connect ${ANDROID_AVD_DEVICE}
-    ANDROID_ADB_SERVER_PORT=${ANDROID_ADB_SERVER_PORT} ${WORKSPACE}/daemonize -o ${WORKSPACE}/avd/${AVD_NAME}.avd/initial-logcat.txt \
+    ANDROID_ADB_SERVER_PORT=${ANDROID_ADB_SERVER_PORT} daemonize -o ${WORKSPACE}/avd/${AVD_NAME}.avd/initial-logcat.txt \
             -e /tmp/${USER}-logcat.err -p /tmp/${USER}-logcat.pid -l /tmp/${USER}-logcat.lock \
             $ANDROID_HOME/platform-tools/adb -s ${ANDROID_AVD_DEVICE} logcat -v time
     ANDROID_ADB_SERVER_PORT=${ANDROID_ADB_SERVER_PORT} adb -s ${ANDROID_AVD_DEVICE} shell input keyevent 82 # unlocks emulator screen
@@ -289,7 +290,7 @@ if [[ "${AVD_NAME}" == "" ]]; then
     exit 2
 fi
 
-PATH=$PATH:$ANDROID_HOME/platform-tools # .../tools is in the path, but .../platform-tools is not
+#PATH=$PATH:$ANDROID_HOME/platform-tools # .../tools is in the path, but .../platform-tools is not
 
 if [[ -z ${PRIVATE} ]]; then
     PRIVATE=${JENKINS_HOME/home/private} # s|home|private|;
@@ -299,17 +300,6 @@ fi
 # make sure needed directories exist:
 mkdir -p ~/.android/avd/ ${WORKSPACE}/avd || exit 3
 chmod -R u+w ~/.android ${WORKSPACE}/avd || exit 4
-
-# copy daemonize to workspace:
-if [[ /private/k9mail/daemonize -nt ${WORKSPACE}/daemonize ]]; then
-    echo copying daemonize to ${WORKSPACE}/daemonize
-    cp -f /private/k9mail/daemonize ${WORKSPACE}/daemonize || exit 5
-fi
-
-# make sure daemonize is executable:
-if [[ ! -x ${WORKSPACE}/daemonize ]]; then
-    chmod 755 ${WORKSPACE}/daemonize || exit 6
-fi
 
 # create or extract avd:
 if [[ "${OPT_TARGET}" != "" ]] && [[ ! -e ${PRIVATE}/avd/${AVD_NAME}.tar.gz ]]; then

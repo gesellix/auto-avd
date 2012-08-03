@@ -1,0 +1,9 @@
+- install daemonize
+- get ID of desired Android API, optionally with ABI name > $ANDROID_API_ID
+- choose AVD name > $AVD_NAME
+- config:
+export PRIVATE="..."
+export WORKSPACE="..."
+
+- run script:
+./auto-avd.sh -n $AVD_NAME -t $ANDROID_API_ID
