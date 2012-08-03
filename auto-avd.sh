@@ -217,7 +217,7 @@ create_snapshot () {
     tar -C ${WORKSPACE}/avd/ -z -c -p -v -f ${AVD_NAME}.tar.gz ${AVD_NAME}.ini ${AVD_NAME}.avd || exit 16
 
     # quit if running locally (for testing):
-    if [[ "${HOSTNAME}" == "tantrum" ]]; then
+#    if [[ "${HOSTNAME}" == "tantrum" ]]; then
         mkdir -p ${PRIVATE}/avd
         mv ${AVD_NAME}.tar.gz ${PRIVATE}/avd/
         extract_avd
@@ -225,24 +225,24 @@ create_snapshot () {
         start_emulator
         wait_for_boot
         start_avd
-    fi
+#    fi
 
     # copy the archive to private storage via cadaver and then delete it from the workspace:
-    chmod u+w ~/.netrc
-    if [[ /private/k9mail/.netrc -nt ~/.netrc ]]; then
-        cp -f /private/k9mail/.netrc ~/.netrc
-        chmod u+w ~/.netrc
-    fi
-    echo copying ${AVD_NAME}.tar.gz to /private/k9mail/
-    (echo -e "put ${AVD_NAME}.tar.gz\nquit" | cadaver https://repository-k9mail.forge.cloudbees.com/private/avd/) || exit 17
-    rm -f ~/.netrc
-    ls -l ${AVD_NAME}.tar.gz /private/k9mail/avd/${AVD_NAME}.tar.gz # these should be the same size if successful
-    rm -f ${AVD_NAME}.tar.gz
-    extract_avd
-    set_ports
-    start_emulator
-    wait_for_boot
-    start_avd
+#    chmod u+w ~/.netrc
+#    if [[ /private/k9mail/.netrc -nt ~/.netrc ]]; then
+#        cp -f /private/k9mail/.netrc ~/.netrc
+#        chmod u+w ~/.netrc
+#    fi
+#    echo copying ${AVD_NAME}.tar.gz to /private/k9mail/
+#    (echo -e "put ${AVD_NAME}.tar.gz\nquit" | cadaver https://repository-k9mail.forge.cloudbees.com/private/avd/) || exit 17
+#    rm -f ~/.netrc
+#    ls -l ${AVD_NAME}.tar.gz /private/k9mail/avd/${AVD_NAME}.tar.gz # these should be the same size if successful
+#    rm -f ${AVD_NAME}.tar.gz
+#    extract_avd
+#    set_ports
+#    start_emulator
+#    wait_for_boot
+#    start_avd
 }
 
 
